@@ -18,7 +18,8 @@ if sys.platform == 'darwin':
     SYSTEM_DIRS = [
         '/usr/lib',
         '/System/Library/Frameworks',
-        '/System/Library/PrivateFrameworks'
+        '/System/Library/PrivateFrameworks',
+        '/System/Library/Extensions'
     ]
 else:
     SYSTEM_DIRS = [
@@ -31,7 +32,11 @@ MISSING_SYMBOLS_URL = 'https://crash-analysis.mozilla.com/crash_analysis/{date}/
 def should_process(f, platform=sys.platform):
     '''Determine if a file is a platform binary'''
     if platform == 'darwin':
-        return subprocess.check_output(['file', '-Lb', f]).startswith('Mach-O')
+        filetype = subprocess.check_output(['file', '-Lb', f])
+        '''Skip kernel extensions'''
+        if filetype.find('kext bundle') != -1:
+            return False
+        return filetype.startswith('Mach-O')
     else:
         return subprocess.check_output(['file', '-Lb', f]).startswith('ELF')
     return False
