@@ -40,7 +40,7 @@ def should_process(f, platform=sys.platform):
         '''
         try:
             filetype = subprocess.check_output(['file', '-Lb', f])
-        except CalledProcessError:
+        except subprocess.CalledProcessError:
             return False
         '''Skip kernel extensions'''
         if filetype.find('kext bundle') != -1:
