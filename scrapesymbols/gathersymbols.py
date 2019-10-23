@@ -32,7 +32,16 @@ MISSING_SYMBOLS_URL = 'https://crash-analysis.mozilla.com/crash_analysis/{date}/
 def should_process(f, platform=sys.platform):
     '''Determine if a file is a platform binary'''
     if platform == 'darwin':
-        filetype = subprocess.check_output(['file', '-Lb', f])
+        '''
+        The 'file' command can error out. One example is "illegal byte
+        sequence" on a Japanese language UTF8 text file. So we must wrap the
+        command in a try/except block to prevent the script from terminating
+        prematurely when this happens.
+        '''
+        try:
+            filetype = subprocess.check_output(['file', '-Lb', f])
+        except CalledProcessError:
+            return False
         '''Skip kernel extensions'''
         if filetype.find('kext bundle') != -1:
             return False
