@@ -43,7 +43,7 @@ def should_process(f, platform=sys.platform):
         except subprocess.CalledProcessError:
             return False
         '''Skip kernel extensions'''
-        if filetype.find('kext bundle') != -1:
+        if 'kext bundle' in filetype:
             return False
         return filetype.startswith('Mach-O')
     else:
