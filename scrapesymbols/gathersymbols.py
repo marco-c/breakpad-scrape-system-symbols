@@ -18,7 +18,8 @@ if sys.platform == 'darwin':
     SYSTEM_DIRS = [
         '/usr/lib',
         '/System/Library/Frameworks',
-        '/System/Library/PrivateFrameworks'
+        '/System/Library/PrivateFrameworks',
+        '/System/Library/Extensions'
     ]
 else:
     SYSTEM_DIRS = [
@@ -31,7 +32,20 @@ MISSING_SYMBOLS_URL = 'https://crash-analysis.mozilla.com/crash_analysis/{date}/
 def should_process(f, platform=sys.platform):
     '''Determine if a file is a platform binary'''
     if platform == 'darwin':
-        return subprocess.check_output(['file', '-Lb', f]).startswith('Mach-O')
+        '''
+        The 'file' command can error out. One example is "illegal byte
+        sequence" on a Japanese language UTF8 text file. So we must wrap the
+        command in a try/except block to prevent the script from terminating
+        prematurely when this happens.
+        '''
+        try:
+            filetype = subprocess.check_output(['file', '-Lb', f])
+        except subprocess.CalledProcessError:
+            return False
+        '''Skip kernel extensions'''
+        if 'kext bundle' in filetype:
+            return False
+        return filetype.startswith('Mach-O')
     else:
         return subprocess.check_output(['file', '-Lb', f]).startswith('ELF')
     return False
