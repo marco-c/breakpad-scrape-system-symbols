@@ -27,7 +27,6 @@ else:
         '/usr/lib',
     ]
 SYMBOL_SERVER_URL = 'https://s3-us-west-2.amazonaws.com/org.mozilla.crash-stats.symbols-public/v1/'
-MISSING_SYMBOLS_URL = 'https://crash-analysis.mozilla.com/crash_analysis/{date}/{date}-missing-symbols.txt'
 
 def should_process(f, platform=sys.platform):
     '''Determine if a file is a platform binary'''
@@ -70,7 +69,7 @@ def server_has_file(filename):
         return False
 
 
-def process_file(dump_syms, path, arch, verbose, missing_symbols):
+def process_file(dump_syms, path, arch, verbose, write_all):
     if sys.platform == 'darwin':
         arch_arg = ['-a', arch]
     else:
@@ -88,49 +87,19 @@ def process_file(dump_syms, path, arch, verbose, missing_symbols):
     if len(bits) != 5:
         return None, None
     _, platform, cpu_arch, debug_id, debug_file = bits
-    # see if this symbol is missing
-    if missing_symbols and (debug_file, debug_id) not in missing_symbols:
-        return None, None
     if verbose:
         sys.stdout.write('Processing %s [%s]...' % (path, arch))
     filename = os.path.join(debug_file, debug_id, debug_file + '.sym')
     # see if the server already has this symbol file
-    if server_has_file(filename):
-        if verbose:
-            print 'already on server.'
-        return None, None
+    if not write_all:
+        if server_has_file(filename):
+            if verbose:
+                print 'already on server.'
+            return None, None
     # Collect for uploading
     if verbose:
         print 'done.'
     return filename, stdout
-
-def just_platform_symbols(file):
-    extension = '.dylib' if sys.platform == 'darwin' else '.so'
-    symbols = set()
-    lines = iter(file.splitlines())
-    # Skip header
-    next(lines)
-    for line in lines:
-        line = unicode(line.rstrip(), 'utf-8').encode('ascii', 'replace')
-        bits = line.split(',')
-        if len(bits) < 2:
-            continue
-        debug_file, debug_id = bits[:2]
-        if debug_file.endswith(extension):
-            symbols.add((debug_file, debug_id))
-    return symbols
-
-def fetch_missing_symbols(verbose):
-    now = datetime.datetime.now()
-    for n in range(5):
-        d = now + datetime.timedelta(days=-n)
-        u = MISSING_SYMBOLS_URL.format(date=d.strftime('%Y%m%d'))
-        r = requests.get(u)
-        if r.status_code == 200:
-            if verbose:
-                print 'Fetching missing symbols from %s' % u
-            return just_platform_symbols(r.content)
-    return set()
 
 def get_files(paths, platform=sys.platform):
     '''
@@ -149,7 +118,7 @@ def get_files(paths, platform=sys.platform):
             yield path
 
 def process_paths(paths, executor, dump_syms, verbose,
-                  missing_symbols=None,
+                  write_all=False,
                   platform=sys.platform):
     jobs = set()
     for fullpath in get_files(paths, platform=platform):
@@ -162,7 +131,7 @@ def process_paths(paths, executor, dump_syms, verbose,
             if os.path.isfile(dbgpath):
                 fullpath = dbgpath
         for arch in get_archs(fullpath, platform=platform):
-            jobs.add(executor.submit(process_file, dump_syms, fullpath, arch, verbose, missing_symbols))
+            jobs.add(executor.submit(process_file, dump_syms, fullpath, arch, verbose, write_all))
     for job in concurrent.futures.as_completed(jobs):
         try:
             yield job.result()
@@ -184,16 +153,11 @@ def main():
     if not os.path.isabs(args.dump_syms) or not os.path.exists(args.dump_syms) or not os.access(args.dump_syms, os.X_OK):
         print >>sys.stderr, 'Error: can\'t find dump_syms binary at %s!' % args.dump_syms
         return 1
-    if args.all or args.files:
-        missing_symbols = None
-    else:
-        # Fetch list of missing symbols
-        missing_symbols = fetch_missing_symbols(args.verbose)
     file_list = set()
     executor = concurrent.futures.ProcessPoolExecutor()
     zip_path = os.path.abspath('symbols.zip')
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for filename, contents in process_paths(args.files if args.files else SYSTEM_DIRS, executor, args.dump_syms, args.verbose, missing_symbols):
+        for filename, contents in process_paths(args.files if args.files else SYSTEM_DIRS, executor, args.dump_syms, args.verbose, args.all):
             if filename and contents and filename not in file_list:
                 file_list.add(filename)
                 zf.writestr(filename, contents)
